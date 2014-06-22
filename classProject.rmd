@@ -1,0 +1,131 @@
+Course project writeup
+========================================================
+```{r, echo=FALSE}
+library(caret)
+
+set.seed(10)
+
+
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", dest="pml-testing.csv")
+testing_raw<-read.csv("pml-testing.csv")
+
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", dest="pml-training.csv")
+training_raw<-read.csv("pml-training.csv")
+
+```
+
+How much training data do we have?
+
+```{r}
+dim(training_raw)
+```
+
+160 features. We could use PCA to bring it down to 2-3 for visualization but that probably would've been rather difficult to intepret. First of all, let's put aside some data for cross-validation (for the purpose of this writeup, CV gets 70% of the data, since takes too long to train a model on 70% of the training set).
+
+```{r}
+inTrain<-createDataPartition(training_raw$classe, p = 0.2, list = F)
+
+training_subset<-training_raw[inTrain,]
+CV_raw<-training_raw[-inTrain,]
+```
+
+Now, let's have a quick look at the data
+
+```{r, results="asis", echo=FALSE}
+library(xtable)
+xt<-xtable(summary(training_raw))
+print(xt, type="html")
+```
+
+A few columns mostly contain NA's. Let's get rid of them, since imputation seems like a bad idea when most of the data is missing.
+
+```{r}
+too_many_nas<-colSums(is.na(training_subset)) > nrow(training_subset)/2
+
+training_clean<-training_subset[, -too_many_nas]
+CV_clean<-CV_raw[,-too_many_nas]
+testing_clean<-testing_raw[,-too_many_nas]
+```
+
+The column cvtd_timestamp is most likely a combination of raw_timestamp_part_1 and raw_timestamp_part_2, so it doesn't add any information. The column kurtosis_yaw_belt also doesn't look like it contain any useful data. Let's delete these columns.
+```{r}
+training<-subset(training_clean,select=-c(kurtosis_yaw_belt, cvtd_timestamp))
+
+testing<-subset(testing_clean,select=-c(kurtosis_yaw_belt, cvtd_timestamp))
+
+CV<-subset(CV_clean, select=-c(kurtosis_yaw_belt, cvtd_timestamp))
+```
+
+How many columns left?
+
+```{r}
+dim(training)
+```
+
+Still a lot of features. Let's try to spped the elimination process up by keeping only columns with numerical data. We convert each column to characters, then to numbers and check how many NA's we got. If more then half of elements in the column turn out to be missing (presumably either because we tried to convert somtheing that is not a number, or maybe the data was missing all along.)  
+
+```{r}
+asNumeric <- function(x) as.numeric(as.character(x))
+factorsNumeric <- function(d) modifyList(d, lapply(d[, sapply(d, is.factor)],   
+                                                   asNumeric))
+
+training_num<-factorsNumeric(training[,-ncol(training)])
+training_num$classe<-training$classe
+
+
+testing_num<-factorsNumeric(testing[,-ncol(testing)])
+
+
+CV_num<-factorsNumeric(CV[,-ncol(CV)])
+CV_num$classe<-CV$classe
+
+
+training_num_clean<-training_num[, colSums(is.na(training_num)) < nrow(training_num)/2]
+
+colnames_left<-colnames(training_num_clean)
+
+CV_num_clean<-CV_num[,colnames_left]
+testing_num_clean<-testing_num[,colnames_left[-length(colnames_left)]]
+
+```
+
+This leaves us with `ncol(training_num_clean)` features. We might've thrown out valuable data as well, but let's see what kind of cross validation error we can get with whats left.
+
+Since all the data is numeric we can try svm, which should be faster to train then random forest. (I tried random forest on the dataset with barely preprocessing at all, only removing NA's from original dataset.) 
+
+```{r, cache = TRUE}
+#tctrl<-trainControl(method="repeatedcv", repeats = 5, classProbs=TRUE)
+
+svmFit <- train(classe ~ ., data = training_num_clean,
+                method = "svmRadial",
+                preProc = c("center", "scale"),
+                tuneLength = 8,
+                metric = "Kappa")
+```
+
+Let's see how good this model is by testing it on cross validation set.
+
+```{r}
+predicttions<-predict(svmFit, newdata=CV_num_clean)
+accuracy<-sum(predictions==CV_num_clean$classe)/length(predictions)
+```
+
+So this model got `accuracy` classes right. Is is a good measure of the model performance?
+
+```{r}
+table(CV_num_clean$classe)
+```
+
+Distribution in testing_num_clean should be similar, since we used createDataPartition to split the set. So classe is a little bit skewered towards A, but nothing dramatic. Therefore, simple accurace measure should give us a good idea of how good the model is. 
+
+We could also try random forest. 
+```{r, cache=TRUE}
+rfFit<- train(classe ~ ., data = training_num_clean,
+              method = "rf",
+              metric = "Kappa")
+
+predictions_rf<-predict(rfFit, newdata=CV_num_clean)
+accuracy<-sum(predictions_rf==CV_num_clean$classe)/length(predictions_rf)
+```
+
+
