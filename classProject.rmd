@@ -20,10 +20,10 @@ How much training data do we have?
 dim(training_raw)
 ```
 
-160 features. We could use PCA to bring it down to 2-3 for visualization but that probably would've been rather difficult to intepret. First of all, let's put aside some data for cross-validation (for the purpose of this writeup, CV gets 70% of the data, since takes too long to train a model on 70% of the training set).
+160 features. We could use PCA to bring it down to 2-3 for visualization but that probably would've been rather difficult to intepret. First of all, let's put aside some data for cross-validation (for the purpose of this writeup, CV gets most of the data, since it takes too long to train a model on 70% of the training set).
 
 ```{r}
-inTrain<-createDataPartition(training_raw$classe, p = 0.2, list = F)
+inTrain<-createDataPartition(training_raw$classe, p = 0.05, list = F)
 
 training_subset<-training_raw[inTrain,]
 CV_raw<-training_raw[-inTrain,]
@@ -64,7 +64,7 @@ dim(training)
 
 Still a lot of features. Let's try to spped the elimination process up by keeping only columns with numerical data. We convert each column to characters, then to numbers and check how many NA's we got. If more then half of elements in the column turn out to be missing (presumably either because we tried to convert somtheing that is not a number, or maybe the data was missing all along.)  
 
-```{r}
+```{r, warning=FALSE}
 asNumeric <- function(x) as.numeric(as.character(x))
 factorsNumeric <- function(d) modifyList(d, lapply(d[, sapply(d, is.factor)],   
                                                    asNumeric))
@@ -106,8 +106,9 @@ svmFit <- train(classe ~ ., data = training_num_clean,
 Let's see how good this model is by testing it on cross validation set.
 
 ```{r}
-predicttions<-predict(svmFit, newdata=CV_num_clean)
+predictions<-predict(svmFit, newdata=CV_num_clean)
 accuracy<-sum(predictions==CV_num_clean$classe)/length(predictions)
+accuracy
 ```
 
 So this model got `accuracy` classes right. Is is a good measure of the model performance?
@@ -126,6 +127,7 @@ rfFit<- train(classe ~ ., data = training_num_clean,
 
 predictions_rf<-predict(rfFit, newdata=CV_num_clean)
 accuracy<-sum(predictions_rf==CV_num_clean$classe)/length(predictions_rf)
+accuracy
 ```
 
 
